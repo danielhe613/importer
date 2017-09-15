@@ -91,7 +91,7 @@ func importFile(id int, wg *sync.WaitGroup, todo <-chan string, done chan<- stri
 
 			buf := new(bytes.Buffer)
 			lineNo := 0
-			isPartial := false
+			lastIsPrefix := false
 
 			for {
 				line, isPrefix, err := reader.ReadLine()
@@ -113,46 +113,27 @@ func importFile(id int, wg *sync.WaitGroup, todo <-chan string, done chan<- stri
 					continue
 				}
 
-				if !isPartial && isPrefix { //first part
+				if !lastIsPrefix { //first part or the whole part
 					lineNo++
 					if lineNo%ImportBatchSize == 1 { //first json
 						buf.WriteString("[\n")
 					}
-					if lineNo%ImportBatchSize > 1 {
+					if lineNo%ImportBatchSize != 1 {
 						buf.WriteString(",\n")
-					}
-					buf.Write(line)
-
-					isPartial = true
-
-				} else if isPartial && !isPrefix { //last part
-					buf.Write(line)
-					if lineNo%ImportBatchSize == 0 {
-						buf.WriteString("\n]")
-						postToOpenTSDB(buf)
-					}
-					isPartial = false
-
-				} else if isPartial && isPrefix { //middle parts
-					buf.Write(line)
-				} else if !isPartial && !isPrefix { //or a whole line
-					lineNo++
-					if lineNo%ImportBatchSize == 1 { //first json
-						buf.WriteString("[\n")
-					}
-					if lineNo%ImportBatchSize > 1 {
-						buf.WriteString(",\n")
-					}
-					buf.Write(line)
-
-					if lineNo%ImportBatchSize == 0 {
-						buf.WriteString("\n]")
-						postToOpenTSDB(buf)
 					}
 				}
 
-			}
+				buf.Write(line)
 
+				if !isPrefix { //last part or the whole part
+					if lineNo%ImportBatchSize == 0 {
+						buf.WriteString("\n]")
+						postToOpenTSDB(buf)
+					}
+
+				}
+				lastIsPrefix = isPrefix
+			}
 		case <-quit:
 			log.Println("File importer #" + strconv.Itoa(id) + " exits!")
 			wg.Done()
@@ -169,7 +150,7 @@ func postToOpenTSDB(buf *bytes.Buffer) {
 	resp, err := http.Post(OpenTSDBUrl, "application/json", buf)
 	if err != nil {
 		log.Println("Failed to post the metrics into OpenTSDB.")
-		log.Printf("Metrics: \n %s \n", buf.String())
+		log.Printf("Metrics: \n%s \n", buf.String())
 		return
 	}
 
