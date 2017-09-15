@@ -165,6 +165,11 @@ func postToOpenTSDB(buf *bytes.Buffer) {
 
 func main() {
 
+	//config loading
+	//logging
+	//arguments
+	//gracefully shutdown
+
 	//Initialization
 	OpenTSDBUrl = "10.99.73.32:4242/api/put?details"
 	FolderScanInterval = time.Second * 1
