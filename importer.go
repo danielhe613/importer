@@ -73,67 +73,69 @@ func importFile(id int, wg *sync.WaitGroup, todo <-chan string, done chan<- stri
 	for {
 		select {
 		case filename = <-todo:
-			file, err := os.Open(filename)
-			if err != nil {
-				log.Println("Failed to open the metric data file named " + filename)
-				continue
-			}
-			defer file.Close()
-
-			gunzipper, err := gzip.NewReader(file)
-			if err != nil {
-				log.Println("Failed to open the metric data file named " + filename)
-				continue
-			}
-			defer gunzipper.Close()
-
-			reader := bufio.NewReader(gunzipper)
-
-			buf := new(bytes.Buffer)
-			lineNo := 0
-			lastIsPrefix := false
-
-			for {
-				line, isPrefix, err := reader.ReadLine()
-				if err != nil && err != io.EOF {
-					log.Println("Failed to read line from " + filename + " due to " + err.Error())
-					break
+			func() {
+				file, err := os.Open(filename)
+				if err != nil {
+					log.Println("Failed to open the metric data file named " + filename)
+					return
 				}
+				defer file.Close()
 
-				if err != nil && err == io.EOF {
-					if lineNo%ImportBatchSize > 0 {
-						buf.WriteString("\n]")
-						postToOpenTSDB(buf)
-					}
-					done <- filename
-					break
+				gunzipper, err := gzip.NewReader(file)
+				if err != nil {
+					log.Println("Failed to open the metric data file named " + filename)
+					return
 				}
+				defer gunzipper.Close()
 
-				if len(line) == 0 { //end of file
-					continue
-				}
+				reader := bufio.NewReader(gunzipper)
 
-				if !lastIsPrefix { //first part or the whole part
-					lineNo++
-					if lineNo%ImportBatchSize == 1 { //first json
-						buf.WriteString("[\n")
-					}
-					if lineNo%ImportBatchSize != 1 {
-						buf.WriteString(",\n")
-					}
-				}
+				buf := new(bytes.Buffer)
+				lineNo := 0
+				lastIsPrefix := false
 
-				buf.Write(line)
-
-				if !isPrefix { //last part or the whole part
-					if lineNo%ImportBatchSize == 0 {
-						buf.WriteString("\n]")
-						postToOpenTSDB(buf)
+				for {
+					line, isPrefix, err := reader.ReadLine()
+					if err != nil && err != io.EOF {
+						log.Println("Failed to read line from " + filename + " due to " + err.Error())
+						break
 					}
 
+					if err != nil && err == io.EOF {
+						if lineNo%ImportBatchSize > 0 {
+							buf.WriteString("\n]")
+							postToOpenTSDB(buf)
+						}
+						done <- filename
+						break
+					}
+
+					if len(line) == 0 { //end of file
+						continue
+					}
+
+					if !lastIsPrefix { //first part or the whole part
+						lineNo++
+						if lineNo%ImportBatchSize == 1 { //first json
+							buf.WriteString("[\n")
+						}
+						if lineNo%ImportBatchSize != 1 {
+							buf.WriteString(",\n")
+						}
+					}
+
+					buf.Write(line)
+
+					if !isPrefix { //last part or the whole part
+						if lineNo%ImportBatchSize == 0 {
+							buf.WriteString("\n]")
+							postToOpenTSDB(buf)
+						}
+
+					}
+					lastIsPrefix = isPrefix
 				}
-				lastIsPrefix = isPrefix
-			}
+			}()
 		case <-quit:
 			log.Println("File importer #" + strconv.Itoa(id) + " exits!")
 			wg.Done()
